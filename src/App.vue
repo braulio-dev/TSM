@@ -1,366 +1,86 @@
 <template>
-  <div class="app">
-    <!-- Login/Register Modal -->
-    <div v-if="!isAuthenticated" class="auth-overlay">
-      <div class="auth-modal">
-        <h2>{{ authMode === 'login' ? 'Login' : 'Register' }}</h2>
-        <form @submit.prevent="handleAuth">
-          <div class="form-group">
-            <label for="email">Email:</label>
-            <input 
-              id="email"
-              v-model="authForm.email" 
-              type="email" 
-              required 
-              placeholder="Enter your email"
-            >
-          </div>
-          <div class="form-group">
-            <label for="password">Password:</label>
-            <input 
-              id="password"
-              v-model="authForm.password" 
-              type="password" 
-              required 
-              placeholder="Enter your password"
-            >
-          </div>
-          <div v-if="authError" class="error-message">{{ authError }}</div>
-          <button type="submit" class="btn btn-primary" :disabled="authLoading">
-            {{ authLoading ? 'Please wait...' : (authMode === 'login' ? 'Login' : 'Register') }}
-          </button>
-          <p class="auth-switch">
-            {{ authMode === 'login' ? "Don't have an account?" : "Already have an account?" }}
-            <a href="#" @click.prevent="toggleAuthMode">
-              {{ authMode === 'login' ? 'Register' : 'Login' }}
-            </a>
-          </p>
-        </form>
-      </div>
-    </div>
+  <div class="app" :data-theme="isDarkMode ? 'dark' : 'light'">
+    <!-- Authentication Modal -->
+    <AuthModal
+      v-if="!isAuthenticated"
+      :auth-mode="authMode"
+      :email="authForm.email"
+      :password="authForm.password"
+      :error="authError"
+      :loading="authLoading"
+      @close="authError = ''"
+      @submit="handleAuth"
+      @toggle-mode="toggleAuthMode"
+      @update:email="authForm.email = $event"
+      @update:password="authForm.password = $event"
+    />
 
     <!-- Main Application -->
     <div v-else class="container">
-      <div class="header">
-        <h1>Camera Stream Manager</h1>
-        <div class="user-info">
-          <span>Welcome, {{ currentUser?.email }}</span>
-          <button @click="logout" class="btn btn-logout">Logout</button>
-        </div>
-        <div class="tab-navigation">
-          <button 
-            @click="activeTab = 'streaming'" 
-            :class="['tab-btn', { active: activeTab === 'streaming' }]"
-          >
-            Live Streaming
-          </button>
-          <button 
-            @click="activeTab = 'files'" 
-            :class="['tab-btn', { active: activeTab === 'files' }]"
-          >
-            FTP File Browser
-          </button>
-          <button 
-            @click="activeTab = 'email'" 
-            :class="['tab-btn', { active: activeTab === 'email' }]"
-          >
-            Email
-            <span v-if="unreadCount > 0" class="unread-badge">{{ unreadCount }}</span>
-          </button>
-        </div>
-      </div>
+      <!-- App Header -->
+      <AppHeader
+        :active-tab="activeTab"
+        :current-user="currentUser"
+        :unread-count="unreadCount"
+        :is-dark-mode="isDarkMode"
+        @tab-change="activeTab = $event"
+        @logout="logout"
+        @toggle-dark-mode="toggleDarkMode"
+      />
 
       <!-- Streaming Tab -->
-      <div v-show="activeTab === 'streaming'" class="tab-content">
-        <div class="controls">
-          <button @click="addCamera" class="btn">Add Camera</button>
-          <button @click="removeCamera" class="btn">Remove Camera</button>
-        </div>
-        <div class="camera-grid">
-          <div v-for="(camera, index) in cameras" :key="index" class="camera-container">
-            <div class="stream-input">
-              <input 
-                v-model="camera.streamName" 
-                type="text" 
-                placeholder="Enter stream name (e.g., cam1)"
-              >
-              <button @click="connectStream(index)" class="btn">Connect</button>
-            </div>
-            <video 
-              :id="'video-' + index" 
-              autoplay 
-              controls
-            ></video>
-            <div class="camera-label">Camera {{ index + 1 }}</div>
-          </div>
-        </div>
-      </div>
+      <StreamingTab
+        v-show="activeTab === 'streaming'"
+        :cameras="cameras"
+        @add-camera="addCamera"
+        @remove-camera="removeCamera"
+        @connect-stream="connectStream"
+        @update-stream-name="updateStreamName"
+      />
 
-      <!-- FTP File Browser Tab -->
-      <div v-show="activeTab === 'files'" class="tab-content">
-        <div class="ftp-browser">
-          <div class="ftp-header">
-            <h3>FTP File Browser - HLS Directory</h3>
-            <div class="ftp-controls">
-              <div class="path-display">
-                <span class="path-label">Path:</span>
-                <span class="current-path">{{ currentPath }}</span>
-              </div>
-              <div class="control-buttons">
-                <button @click="refreshFiles" class="btn" :disabled="loading">
-                  {{ loading ? 'Loading...' : 'Refresh' }}
-                </button>
-                <button @click="navigateUp" class="btn" :disabled="isRootPath">
-                  Up Directory
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="file-list-container">
-            <div v-if="loading" class="loading-state">
-              <div class="spinner"></div>
-              <span>{{ loadingMessage }}</span>
-            </div>
-            
-            <div v-else-if="error" class="error-state">
-              <div class="error-icon">⚠️</div>
-              <div class="error-message">{{ error }}</div>
-              <button @click="refreshFiles" class="btn">Retry</button>
-            </div>
-            
-            <div v-else class="file-list">
-              <div class="file-list-header">
-                <div class="header-name">Name</div>
-                <div class="header-size">Size</div>
-                <div class="header-modified">Modified</div>
-                <div class="header-actions">Actions</div>
-              </div>
-              
-              <div 
-                v-for="(file, index) in files" 
-                :key="index"
-                :class="['file-item', { 
-                  selected: selectedFile === file,
-                  folder: file.type === 'folder'
-                }]"
-                @click="selectFile(file)"
-                @dblclick="handleDoubleClick(file)"
-              >
-                <div class="file-info">
-                  <div class="file-icon">
-                    {{ getFileIcon(file) }}
-                  </div>
-                  <div class="file-name" :title="file.name">{{ file.name }}</div>
-                </div>
-                <div class="file-size">{{ formatFileSize(file.size) }}</div>
-                <div class="file-modified">{{ formatDate(file.modified) }}</div>
-                <div class="file-actions">
-                  <button 
-                    v-if="file.type !== 'folder'" 
-                    @click.stop="downloadFile(file)"
-                    class="btn-small download-btn"
-                    :disabled="downloading === file.name"
-                  >
-                    {{ downloading === file.name ? 'Downloading...' : 'Download' }}
-                  </button>
-                  <button 
-                    v-if="file.type === 'folder'" 
-                    @click.stop="navigateToFolder(file)"
-                    class="btn-small"
-                  >
-                    Open
-                  </button>
-                </div>
-              </div>
-              
-              <div v-if="files.length === 0" class="empty-directory">
-                <div class="empty-icon">📁</div>
-                <div class="empty-message">This directory is empty</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="file-details" v-if="selectedFile">
-            <h4>File Details</h4>
-            <div class="details-grid">
-              <div class="detail-item">
-                <span class="detail-label">Name:</span>
-                <span class="detail-value">{{ selectedFile.name }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Type:</span>
-                <span class="detail-value">{{ getFileType(selectedFile) }}</span>
-              </div>
-              <div class="detail-item">
-                <span class="detail-label">Size:</span>
-                <span class="detail-value">{{ formatFileSize(selectedFile.size) }}</span>
-              </div>
-              <div class="detail-item" v-if="selectedFile.modified">
-                <span class="detail-label">Modified:</span>
-                <span class="detail-value">{{ formatDate(selectedFile.modified) }}</span>
-              </div>
-              <div class="detail-item" v-if="selectedFile.type !== 'folder'">
-                <span class="detail-label">Download:</span>
-                <button 
-                  @click="downloadFile(selectedFile)"
-                  class="btn download-btn"
-                  :disabled="downloading === selectedFile.name"
-                >
-                  {{ downloading === selectedFile.name ? 'Downloading...' : 'Download File' }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- File Browser Tab -->
+      <FileBrowserTab
+        v-show="activeTab === 'files'"
+        :current-path="currentPath"
+        :files="files"
+        :selected-file="selectedFile"
+        :loading="loading"
+        :loading-message="loadingMessage"
+        :error="error"
+        :downloading="downloading"
+        :is-root-path="isRootPath"
+        @refresh="refreshFiles"
+        @navigate-up="navigateUp"
+        @select-file="selectFile"
+        @double-click="handleDoubleClick"
+        @download-file="downloadFile"
+        @navigate-to-folder="navigateToFolder"
+      />
 
       <!-- Email Tab -->
-      <div v-show="activeTab === 'email'" class="tab-content">
-        <div class="email-container">
-          <div class="email-sidebar">
-            <div class="email-nav">
-              <button 
-                @click="emailView = 'inbox'" 
-                :class="['email-nav-btn', { active: emailView === 'inbox' }]"
-              >
-                Inbox
-                <span v-if="unreadCount > 0" class="unread-badge">{{ unreadCount }}</span>
-              </button>
-              <button 
-                @click="emailView = 'sent'" 
-                :class="['email-nav-btn', { active: emailView === 'sent' }]"
-              >
-                Sent
-              </button>
-              <button 
-                @click="emailView = 'compose'" 
-                :class="['email-nav-btn', { active: emailView === 'compose' }]"
-              >
-                Compose
-              </button>
-            </div>
-          </div>
-
-          <div class="email-main">
-            <!-- Inbox View -->
-            <div v-if="emailView === 'inbox'" class="email-list">
-              <h3>Inbox</h3>
-              <div v-if="emailLoading" class="loading-state">
-                <div class="spinner"></div>
-                <span>Loading emails...</span>
-              </div>
-              <div v-else-if="inbox.length === 0" class="empty-state">
-                <div class="empty-icon">📧</div>
-                <div class="empty-message">No emails in your inbox</div>
-              </div>
-              <div v-else class="email-items">
-                <div 
-                  v-for="email in inbox" 
-                  :key="email.id"
-                  :class="['email-item', { unread: !email.is_read }]"
-                  @click="selectEmail(email)"
-                >
-                  <div class="email-from">{{ email.from_email }}</div>
-                  <div class="email-subject">{{ email.subject }}</div>
-                  <div class="email-date">{{ formatEmailDate(email.received_at) }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Sent View -->
-            <div v-if="emailView === 'sent'" class="email-list">
-              <h3>Sent</h3>
-              <div v-if="emailLoading" class="loading-state">
-                <div class="spinner"></div>
-                <span>Loading emails...</span>
-              </div>
-              <div v-else-if="sentEmails.length === 0" class="empty-state">
-                <div class="empty-icon">📤</div>
-                <div class="empty-message">No sent emails</div>
-              </div>
-              <div v-else class="email-items">
-                <div 
-                  v-for="email in sentEmails" 
-                  :key="email.id"
-                  class="email-item"
-                  @click="selectEmail(email)"
-                >
-                  <div class="email-from">To: {{ email.to_email }}</div>
-                  <div class="email-subject">{{ email.subject }}</div>
-                  <div class="email-date">{{ formatEmailDate(email.sent_at) }}</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Compose View -->
-            <div v-if="emailView === 'compose'" class="compose-email">
-              <h3>Compose Email</h3>
-              <form @submit.prevent="sendEmail">
-                <div class="form-group">
-                  <label for="email-to">To:</label>
-                  <input 
-                    id="email-to"
-                    v-model="composeForm.to" 
-                    type="email" 
-                    required 
-                    placeholder="recipient@example.com"
-                    list="users-list"
-                  >
-                                     <datalist id="users-list">
-                     <option v-for="user in users" :key="user.id" :value="user.email"></option>
-                   </datalist>
-                </div>
-                <div class="form-group">
-                  <label for="email-subject">Subject:</label>
-                  <input 
-                    id="email-subject"
-                    v-model="composeForm.subject" 
-                    type="text" 
-                    required 
-                    placeholder="Email subject"
-                  >
-                </div>
-                <div class="form-group">
-                  <label for="email-body">Message:</label>
-                  <textarea 
-                    id="email-body"
-                    v-model="composeForm.body" 
-                    required 
-                    placeholder="Write your message here..."
-                    rows="10"
-                  ></textarea>
-                </div>
-                <div v-if="emailError" class="error-message">{{ emailError }}</div>
-                <div class="form-actions">
-                  <button type="submit" class="btn btn-primary" :disabled="emailSending">
-                    {{ emailSending ? 'Sending...' : 'Send Email' }}
-                  </button>
-                  <button type="button" @click="clearCompose" class="btn btn-secondary">
-                    Clear
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-
-          <!-- Email Detail View -->
-          <div v-if="selectedEmail" class="email-detail">
-            <div class="email-detail-header">
-              <button @click="selectedEmail = null" class="btn btn-back">← Back</button>
-              <h4>{{ selectedEmail.subject }}</h4>
-            </div>
-            <div class="email-meta">
-              <div><strong>From:</strong> {{ selectedEmail.from_email || 'You' }}</div>
-              <div><strong>To:</strong> {{ selectedEmail.to_email || currentUser?.email }}</div>
-              <div><strong>Date:</strong> {{ formatEmailDate(selectedEmail.sent_at || selectedEmail.received_at) }}</div>
-            </div>
-            <div class="email-body">
-              {{ selectedEmail.body }}
-            </div>
-          </div>
-        </div>
-      </div>
+      <EmailTab
+        v-show="activeTab === 'email'"
+        :email-view="emailView"
+        :inbox="inbox"
+        :sent-emails="sentEmails"
+        :selected-email="selectedEmail"
+        :loading="emailLoading"
+        :error="emailError"
+        :sending="emailSending"
+        :users="users"
+        :compose-form="composeForm"
+        :current-user="currentUser"
+        :unread-count="unreadCount"
+        @change-view="emailView = $event"
+        @refresh-emails="loadEmails"
+        @select-email="selectEmail"
+        @close-email="selectedEmail = null"
+        @send-email="sendEmail"
+        @clear-compose="clearCompose"
+        @update:compose-to="composeForm.to = $event"
+        @update:compose-subject="composeForm.subject = $event"
+        @update:compose-body="composeForm.body = $event"
+      />
     </div>
   </div>
 </template>
@@ -369,9 +89,21 @@
 import Hls from 'hls.js'
 import AuthService from './services/auth.js'
 import EmailService from './services/email.js'
+import AppHeader from './components/AppHeader.vue'
+import AuthModal from './components/AuthModal.vue'
+import StreamingTab from './components/StreamingTab.vue'
+import FileBrowserTab from './components/FileBrowserTab.vue'
+import EmailTab from './components/EmailTab.vue'
 
 export default {
   name: 'App',
+  components: {
+    AppHeader,
+    AuthModal,
+    StreamingTab,
+    FileBrowserTab,
+    EmailTab
+  },
   data() {
     return {
       // Authentication
@@ -387,10 +119,18 @@ export default {
 
       // Main app
       activeTab: 'streaming',
+      isDarkMode: true,
       
       // Streaming
       cameras: [
-        { streamName: 'cam1', hls: null }
+        { 
+          streamName: 'cam1', 
+          hls: null, 
+          connected: false, 
+          connecting: false, 
+          error: null,
+          quality: null
+        }
       ],
       
       // FTP Browser
@@ -427,6 +167,12 @@ export default {
     }
   },
   async mounted() {
+    // Initialize dark mode from localStorage
+    const savedDarkMode = localStorage.getItem('darkMode')
+    if (savedDarkMode !== null) {
+      this.isDarkMode = savedDarkMode === 'true'
+    }
+    
     this.checkAuthentication()
     if (this.isAuthenticated) {
       await this.initializeApp()
@@ -468,6 +214,11 @@ export default {
     toggleAuthMode() {
       this.authMode = this.authMode === 'login' ? 'register' : 'login'
       this.authError = ''
+    },
+
+    toggleDarkMode() {
+      this.isDarkMode = !this.isDarkMode
+      localStorage.setItem('darkMode', this.isDarkMode.toString())
     },
 
     logout() {
@@ -575,7 +326,11 @@ export default {
     addCamera() {
       this.cameras.push({ 
         streamName: `cam${this.cameras.length + 1}`,
-        hls: null 
+        hls: null,
+        connected: false,
+        connecting: false,
+        error: null,
+        quality: null
       })
     },
 
@@ -593,9 +348,14 @@ export default {
       const video = document.getElementById(`video-${index}`)
       
       if (!camera.streamName) {
-        alert('Please enter a stream name')
+        camera.error = 'Please enter a stream name'
         return
       }
+
+      // Reset state
+      camera.connecting = true
+      camera.error = null
+      camera.connected = false
 
       // Clean up existing HLS instance
       if (camera.hls) {
@@ -604,47 +364,66 @@ export default {
 
       const streamUrl = `http://${window.location.hostname}/hls/${camera.streamName}.m3u8`
 
-      if (Hls.isSupported()) {
-        camera.hls = new Hls()
-        camera.hls.loadSource(streamUrl)
-        camera.hls.attachMedia(video)
-        
-        camera.hls.on(Hls.Events.MANIFEST_PARSED, async () => {
-          console.log(`Stream ${camera.streamName} connected successfully`)
+      try {
+        if (Hls.isSupported()) {
+          camera.hls = new Hls()
+          camera.hls.loadSource(streamUrl)
+          camera.hls.attachMedia(video)
           
-          // Send notification to all users
-          try {
-            await EmailService.notifyStreamStart(camera.streamName)
-            console.log('Stream notification sent to all users')
-          } catch (error) {
-            console.error('Failed to send stream notification:', error)
-          }
-        })
-
-        camera.hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error('HLS error:', data)
-          if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                console.log('Network error, trying to recover...')
-                camera.hls.startLoad()
-                break
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                console.log('Media error, trying to recover...')
-                camera.hls.recoverMediaError()
-                break
-              default:
-                console.log('Fatal error, destroying HLS instance')
-                camera.hls.destroy()
-                break
+          camera.hls.on(Hls.Events.MANIFEST_PARSED, async () => {
+            console.log(`Stream ${camera.streamName} connected successfully`)
+            camera.connected = true
+            camera.connecting = false
+            camera.error = null
+            
+            // Send notification to all users
+            try {
+              await EmailService.notifyStreamStart(camera.streamName)
+              console.log('Stream notification sent to all users')
+            } catch (error) {
+              console.error('Failed to send stream notification:', error)
             }
-          }
-        })
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = streamUrl
-      } else {
-        alert('HLS is not supported in this browser')
+          })
+
+          camera.hls.on(Hls.Events.ERROR, (event, data) => {
+            console.error('HLS error:', data)
+            camera.connecting = false
+            if (data.fatal) {
+              camera.connected = false
+              camera.error = `Stream error: ${data.details}`
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  console.log('Network error, trying to recover...')
+                  camera.hls.startLoad()
+                  break
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  console.log('Media error, trying to recover...')
+                  camera.hls.recoverMediaError()
+                  break
+                default:
+                  console.log('Fatal error, destroying HLS instance')
+                  camera.hls.destroy()
+                  break
+              }
+            }
+          })
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          video.src = streamUrl
+          camera.connected = true
+          camera.connecting = false
+        } else {
+          camera.error = 'HLS is not supported in this browser'
+          camera.connecting = false
+        }
+      } catch (error) {
+        camera.error = `Failed to connect: ${error.message}`
+        camera.connecting = false
+        camera.connected = false
       }
+    },
+
+    updateStreamName(index, value) {
+      this.cameras[index].streamName = value
     },
 
     // File browser methods (keeping existing implementation)
