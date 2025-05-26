@@ -8,12 +8,33 @@ services:
     environment:
       - MAIL_DOMAIN=intranet.local
       - SMTP_USER=braulio@admin.com:admin
-      - ALLOWED_SENDER_DOMAINS=intranet.local
+      - ALLOW_EMPTY_SENDER_DOMAINS=1
+      - POSTFIX_myhostname=smtp.intranet.local
+      - POSTFIX_mydestination=
+      - POSTFIX_mynetworks=172.0.0.0/8,10.0.0.0/8,192.168.0.0/16,127.0.0.0/8
+      - POSTFIX_relay_domains=*
     ports:
       - "0.0.0.0:25:25"
     networks:
       - intranet
     restart: unless-stopped
+
+  # DNS Server for internal domain resolution
+  dns:
+    image: jpillora/dnsmasq
+    container_name: dns-server
+    ports:
+      - "0.0.0.0:53:53/udp"
+      - "0.0.0.0:53:53/tcp"
+      - "0.0.0.0:8053:8080"
+    volumes:
+      - ./dns/dnsmasq.conf:/etc/dnsmasq.conf
+    networks:
+      intranet:
+        ipv4_address: 172.20.0.10
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
 
   # FTP Server for file access
   ftp:
@@ -26,7 +47,7 @@ services:
       - ./videos:/home/ftpuser/videos
       - ./data/hls:/home/ftpuser/hls
     environment:
-      - PUBLICHOST=10.0.0.9
+      - PUBLICHOST=10.0.0.100
       - FTP_USER_NAME=ftpuser
       - FTP_USER_PASS=ftppass
       - FTP_USER_HOME=/home/ftpuser
@@ -51,6 +72,30 @@ services:
     command: >
       sh -c "mkdir -p /opt/data/hls && chmod -R 777 /opt/data/hls && nginx"
 
+  # Backend API server
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: tsm-backend
+    ports:
+      - "0.0.0.0:3001:3001"
+    volumes:
+      - ./data:/app/data
+      - ./data/hls:/opt/data/hls
+    networks:
+      - intranet
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+      - SMTP_HOST=smtp
+      - SMTP_PORT=25
+      - SMTP_USER=braulio@admin.com
+      - SMTP_PASS=admin
+    depends_on:
+      - smtp
+    restart: unless-stopped
+
   # Vue.js application container
   webapp:
     build:
@@ -65,6 +110,8 @@ services:
       - intranet
     environment:
       - NODE_ENV=production
+    depends_on:
+      - backend
     restart: unless-stopped
     command: >
       sh -c "chmod -R 755 /opt/data/hls && nginx -g 'daemon off;'"
@@ -72,6 +119,10 @@ services:
 networks:
   intranet:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
 
 volumes:
   dbdata:

@@ -1,0 +1,27 @@
+$TTL    604800
+@       IN      SOA     tsm.com. admin.tsm.com. (
+                              2024010101         ; Serial
+                              604800             ; Refresh
+                              86400              ; Retry
+                              2419200            ; Expire
+                              604800 )           ; Negative Cache TTL
+
+; Name servers
+@       IN      NS      ns1.tsm.com.
+
+; A records
+@       IN      A       10.0.0.100
+ns1     IN      A       172.20.0.10
+www     IN      A       10.0.0.100
+
+; CNAME records
+webapp  IN      CNAME   tsm.com.
+api     IN      CNAME   tsm.com.
+stream  IN      CNAME   tsm.com.
+ftp     IN      CNAME   tsm.com.
+smtp    IN      CNAME   tsm.com.
+
+; Service records (optional)
+; _http._tcp    IN      SRV     0 5 80 tsm.com.
+; _https._tcp   IN      SRV     0 5 443 tsm.com.
+; _ftp._tcp     IN      SRV     0 5 21 tsm.com. 
