@@ -1,0 +1,16 @@
+{
+  "name": "camera-stream-manager",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "serve": "vue-cli-service serve --host 0.0.0.0",
+    "build": "vue-cli-service build"
+  },
+  "dependencies": {
+    "vue": "^3.3.4",
+    "hls.js": "^1.4.12"
+  },
+  "devDependencies": {
+    "@vue/cli-service": "^5.0.8"
+  }
+} 

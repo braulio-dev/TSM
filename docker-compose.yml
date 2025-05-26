@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # Contenedor para el servidor SMTP
+  smtp:
+    image: boky/postfix
+    container_name: smtp-server
+    environment:
+      - MAIL_DOMAIN=intranet.local
+      - SMTP_USER=braulio@admin.com:admin
+      - ALLOWED_SENDER_DOMAINS=intranet.local
+    ports:
+      - "0.0.0.0:25:25"
+    networks:
+      - intranet
+    restart: unless-stopped
+
+  # FTP Server for file access
+  ftp:
+    image: stilliard/pure-ftpd
+    container_name: ftp-server
+    ports:
+      - "0.0.0.0:21:21"
+      - "0.0.0.0:30000-30009:30000-30009"
+    volumes:
+      - ./videos:/home/ftpuser/videos
+      - ./data/hls:/home/ftpuser/hls
+    environment:
+      - PUBLICHOST=10.0.0.9
+      - FTP_USER_NAME=ftpuser
+      - FTP_USER_PASS=ftppass
+      - FTP_USER_HOME=/home/ftpuser
+    networks:
+      - intranet
+    restart: unless-stopped
+
+  # Contenedor para streaming con Nginx-RTMP
+  streaming:
+    image: alfg/nginx-rtmp
+    container_name: stream-server
+    ports:
+      - "0.0.0.0:1935:1935"   # RTMP port
+      - "0.0.0.0:8080:80"     # HTTP interface (note: back to port 80 for this image)
+    volumes:
+      - ./videos:/var/www/html/videos
+      - ./rtmp.nginx.conf:/etc/nginx/nginx.conf
+      - ./data/hls:/opt/data/hls
+    networks:
+      - intranet
+    restart: unless-stopped
+    command: >
+      sh -c "mkdir -p /opt/data/hls && chmod -R 777 /opt/data/hls && nginx"
+
+  # Vue.js application container
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: camera-webapp
+    ports:
+      - "0.0.0.0:80:80"
+    volumes:
+      - ./data/hls:/opt/data/hls
+    networks:
+      - intranet
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    command: >
+      sh -c "chmod -R 755 /opt/data/hls && nginx -g 'daemon off;'"
+
+networks:
+  intranet:
+    driver: bridge
+
+volumes:
+  dbdata:
